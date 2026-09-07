@@ -19,10 +19,10 @@ Implement the ML stage of the Fyrillas et al. clear-box characterisation protoco
 - Adam training loop with per-parameter learning rates.
 - Train/test split, monitoring of test MSE and TVD.
 - Recovery of the crosstalk matrix `C_2`, beamsplitter reflectivity vector `R`, and output transmission vector `T_out`.
+- φ-IFM phase fitting (a separate stage that refines `c_0` between ML iterations).
 
 **Out of scope:**
 - V-IFM data acquisition (the seeds for the diagonal of `C_2` and for `c_0` are inputs to this code).
-- φ-IFM phase fitting (a separate stage that refines `c_0` between ML iterations).
 - ITM input-transmission measurement (a separate stage that recovers `T_in`).
 - Compilation / run-time imperfection mitigation.
 - Hardware control or data acquisition.
@@ -227,14 +227,16 @@ Default `betas`, `eps`, `weight_decay = 0`. The paper does not report deviating 
 - **Batch size**: not specified in the paper. Reasonable choices: 32–256. Larger batches are stable; smaller batches add stochastic regularisation. Pick a default of 64 and expose it as an argument.
 - **Shuffling**: yes, every epoch.
 - **Test set**: monitor MSE and TVD every epoch; do not use the test set for optimiser decisions within a single stage. Keep the model state at the best test-MSE epoch.
+- **Within-stage LR schedule**: at the paper LRs and constant within a stage, m≥8 chips overshoot — training MSE oscillates by ~10× once near the basin, the best test MSE is reached very early (epoch ~30 of 200) and then degrades, and the iterative loop's post-ML TVD plateaus around 2 % no matter how many cycles or epochs. Cosine LR annealing within each ML stage (each group's LR decayed from its initial value to ~0 over `epochs`) cures the overshoot: the iterative m=8 loop converges to TVD < 0.02 % in 2 cycles instead of plateauing at 2 % for 20+ cycles. The schedule is opt-in via `train(..., lr_schedule="cosine")` and `run_iterative.py --lr-schedule cosine`. Recommended for m ≥ 8; safe for smaller m (still converges in 2–3 cycles).
 
-### 6.5 Across (ML + φ-IFM) iterations (outer loop, out of scope here)
+### 6.5 Across (ML + φ-IFM) iterations (outer loop)
 
-For completeness (this is not part of the present code, but informs the function signature):
+Implemented in `scripts/run_iterative.py::run_simulation`:
 
-- After each `(ML stage → φ-IFM stage)` round, multiply all learning rates by **`0.7`** before the next ML stage begins.
-- The outer loop exits when the next ML stage's best test MSE exceeds the best test MSE of the previous ML stage (no further improvement).
+- After each `(ML stage → φ-IFM stage)` round, all learning rates are multiplied by **`0.7`** before the next ML stage begins.
+- The loop exits when **either** the post-ML test TVD falls below `--threshold`, **or** the next ML stage's best test MSE fails to improve over the previous cycle (paper's own criterion, toggled by `stop_on_no_improvement`), **or** `--max-cycles` is reached.
 - For the 12-mode chip in the paper, this loop converged after **one** full `(ML + φ-IFM)` pair plus one closing `ML` (Section 7.C: `V-IFM → ML → φ-IFM → ML → ITM`).
+- A fast → precise fringe-fit switchover is also implemented (§7.5.7).
 
 ### 6.6 Summary diagram
 
@@ -250,7 +252,7 @@ For completeness (this is not part of the present code, but informs the function
                        │   no freeze alternation             │
                        └─────────────────────────────────────┘
 
-   Across iterations (outer loop, NOT in this code):
+   Across iterations (outer loop, in scripts/run_iterative.py):
        LR ← LR × 0.7 between consecutive ML stages.
 ```
 
@@ -268,6 +270,108 @@ For completeness (this is not part of the present code, but informs the function
 
 ---
 
+---
+
+## 7.5 φ-IFM stage
+
+The φ-IFM (phase interference-fringe measurement) stage runs after each ML stage. It refines the passive phase vector `c_0` while `C_2`, `R`, `T_out` are held fixed at their ML-stage values. The ML and φ-IFM stages alternate; this code implements one φ-IFM stage.
+
+### 7.5.1 Scope of this stage
+
+- **Input**: a trained `DigitalTwin` (fixed `C_2`, `R`, `T_out`), the current `c_0`, and a φ-IFM dataset (one phase-sweep fringe per phase shifter).
+- **Output**: an updated `c_0` vector. No other parameter is touched.
+- **Out of scope**: V-IFM, ITM, real-hardware routing. (The outer-loop convergence check is now implemented in `scripts/run_iterative.py`; see §6.5.)
+
+### 7.5.2 Three sub-components
+
+The φ-IFM stage has three distinct pieces, implemented in `phi_ifm.py`:
+
+1. **Phase-voltage solver** — given a target phase vector, find the voltage vector that produces it.
+2. **φ-IFM data** — either load experimental fringes or generate synthetic ones.
+3. **Fringe fit** — given a measured fringe and a model-predicted fringe, find the offset `δφ` and update `c_0[i] += δφ`.
+
+### 7.5.3 Phase-voltage solver (Supplement H)
+
+Use the paper's **iterative solver**, not a direct matrix inversion. The equation `phi = C_2 @ (V ** 2) + c_0` is affine in `V ** 2`, so a direct solve `V = sqrt(solve(C_2, phi - c_0))` exists mathematically, but it offers no recourse when a `V ** 2` component is negative or when `V` exceeds `V_max`. The iterative solver handles voltage-range constraints and phase periodicity.
+
+Algorithm (from Supplement H):
+
+solve_phase_voltage(phi_target, C_2, c_0, V_max=15.0, threshold=1e-4, max_iter=...):
+V = zeros(n_PS)
+repeat:
+phi_now  = C_2 @ (V ** 2) + c_0
+delta    = wrap_to_pi(phi_now - phi_target)        # phase diff mod 2π, in (-π, π]
+V        = V - step_factor * delta                 # paper uses step ∝ delta
+V        = clamp_into_range(V, 0, V_max)            # modulo operation into [0, V_max]
+if max(abs(delta)) < threshold: break
+if stuck_in_local_min: V += small_random_vector
+return V
+
+Paper's concrete settings: precision threshold `0.1 mrad`, `V_max = 15 V`, voltage step `delta * V_max / 10`, reshuffle (add random vector) every 500 iterations. Time complexity `O(n_PS ** 3)`.
+
+Note: this solver operates on **NumPy arrays**, not torch tensors. It is not part of the autograd graph. `C_2` and `c_0` are read out of the (fixed) `DigitalTwin` with `.detach().cpu().numpy()`.
+
+### 7.5.4 What a φ-IFM fringe is
+
+For phase shifter `i`, the φ-IFM fringe is the monitored output intensity as the **phase** of PS `i` is swept across `[0, 2π]`, with all other PSs held at fixed phases.
+
+To perform the sweep, for each target value `phi_i ∈ linspace(0, 2π, n_points)`:
+1. Build the full target phase vector: `phi_i` for shifter `i`, fixed routing phases for the routing PSs, and (in the simplest synthetic case) `0` for everything else.
+2. Solve for the voltage vector with the §7.5.3 solver.
+3. Apply the voltages, measure the monitored output port.
+
+The recorded fringe is `(phi_sweep, intensity_sweep)` — one array pair per phase shifter. `n_points = 15` matches the paper.
+
+### 7.5.5 φ-IFM data: experimental vs synthetic
+
+**Experimental**: load arrays from disk. Expected format documented in `data/README.md`. Each phase shifter `i` has a `phi_sweep` array and an `intensity_sweep` array, plus the input port and monitored output port used.
+
+**Synthetic** (for development): the paper does **not** give a dedicated synthetic-φ-IFM recipe, so use this construction:
+1. Instantiate a ground-truth `DigitalTwin` with known `C_2_gt`, `R_gt`, `T_out_gt`, `c_0_gt`.
+2. For each phase shifter `i`, choose an input port and a monitored output port (for synthetic data, any valid pair works; routing realism is not required — see Pitfall 15).
+3. Sweep `phi_i ∈ linspace(0, 2π, n_points)`. For each point, build the target phase vector (sweep value on shifter `i`, zeros elsewhere — or fixed routing phases if you want realism), run the ground-truth `forward`, take the monitored output port intensity.
+4. Add Gaussian noise of small standard deviation (e.g. `1e-3`) to the intensities to mimic shot noise.
+5. Store `(phi_sweep, intensity_sweep, input_port, output_port)` per shifter.
+
+The fringe shape follows Eq. 8 of the supplement (a raised cosine in the phase), so a sanity check is that each synthetic fringe looks like `a·cos²((phi − θ)/2) + b`.
+
+### 7.5.6 Characterization order and synthetic data
+
+**Characterization order does NOT affect synthetic φ-IFM generation.** The order (Supplement C.3) governs the real experiment: which PSs are characterized first (direct paths), which previously-characterized MZIs are set to bar/cross to route light, and which output port is monitored. For synthetic data, the routing is bypassed entirely — the target phase vector is set directly and the forward model is evaluated. Characterization order is only needed when driving real hardware.
+
+For this code (synthetic + ML-stage scope), characterization order can be ignored. If a real-hardware φ-IFM is added later, the order becomes a separate module derived from the chip graph (Supplement C.3); flag it as future work.
+
+### 7.5.7 The two fringe-fit methods (Supplement C.2)
+
+Both methods find a scalar phase offset `δφ` that aligns the model-predicted fringe with the measured fringe, then update `c_0[i] += δφ`.
+
+**Fast method** — three-parameter least squares:
+1. Generate the model-predicted fringe `f(phi)` using the **current** `R` and `T_out` from the `DigitalTwin` (and the routing). `f` is the predicted monitored intensity as a function of the swept phase.
+2. Fit the measured data points to `a + b * f(phi + delta_phi)`, with `a`, `b`, `delta_phi` as free scalars. Use `scipy.optimize.curve_fit` or a small least-squares routine.
+3. Update `c_0[i] += delta_phi`.
+
+**Precise method** — single-parameter optimisation:
+1. Same model-predicted fringe `f(phi)`.
+2. Optimise over `delta_phi` **only**, minimising the distance between the model-generated curve `f(phi + delta_phi)` and the measured curve. No `a`, `b` rescaling.
+3. Update `c_0[i] += delta_phi`.
+
+**When to use which**: the paper uses the fast method first. Its fit residual (distance between data and fit curve) stops improving after a certain number of (ML + φ-IFM) iterations; once the fast-method residual stagnates, switch to the precise method. The stagnation-detection logic is implemented in the outer loop (`scripts/run_iterative.py`, constants `PHI_IFM_STAGNATION_WINDOW` and `PHI_IFM_STAGNATION_TOL`): if the post-ML TVD improves by less than `PHI_IFM_STAGNATION_TOL` (relative) over the last `PHI_IFM_STAGNATION_WINDOW` cycles, the loop switches to the precise method for all subsequent cycles.
+
+### 7.5.8 Summary diagram
+trained DigitalTwin (C_2, R, T_out fixed)  ─┐
+current c_0                                 │
+φ-IFM dataset (one fringe per PS)            │
+▼
+for each phase shifter i:
+model fringe  f(phi)  ◀── DigitalTwin.forward with swept phase
+fit  measured  vs  f(phi + δφ)   ──▶  δφ
+c_0[i]  ←  c_0[i] + δφ
+│
+▼
+updated c_0   ──▶  (back to next ML stage, outer loop)
+
+
+
 ## 8. Suggested file structure
 
 ```
@@ -280,12 +384,17 @@ project/
 │   ├── model.py             ← DigitalTwin nn.Module (parameters + forward)
 │   ├── data.py              ← Dataset wrapper for (V, port, p) triples
 │   ├── training.py          ← train loop with parameter groups
+    ├── phi_ifm.py           ← φ-IFM stage: solver, fringe fit, c_0 update
+│   ├── phase_voltage.py     ← Supplement H iterative solver (NumPy)
 │   └── evaluate.py          ← TVD, plots, diagnostics
+│  
 ├── data/
 │   └── README.md            ← expected data file format
 ├── tests/
 │   ├── test_chip_mesh.py
 │   ├── test_model.py
+│   ├── test_phi_ifm.py
+│   ├── test_phase_voltage.py
 │   └── test_training.py
 └── notebooks/
     └── exploration.ipynb    ← scratch space for runs and plots
@@ -395,6 +504,78 @@ class PICDataset(torch.utils.data.Dataset):
     ...
 ```
 
+### `phase_voltage.py`
+```python
+import numpy as np
+
+def solve_phase_voltage(
+    phi_target: np.ndarray,    # (n_PS,) target phases
+    C_2: np.ndarray,           # (n_PS, n_PS) fixed, from trained model
+    c_0: np.ndarray,           # (n_PS,) current passive phases
+    V_max: float = 15.0,
+    threshold: float = 1e-4,   # 0.1 mrad
+    max_iter: int = 10000,
+    step_scale: float = 0.1,   # voltage step = delta * V_max * step_scale
+    reshuffle_every: int = 500,
+) -> np.ndarray:               # (n_PS,) voltages in [0, V_max]
+    """Iterative solver for phi = C_2 @ (V ** 2) + c_0 (Supplement H)."""
+    ...
+```
+
+### `phi_ifm.py`
+```python
+import numpy as np
+import torch
+from src.model import DigitalTwin
+
+def generate_synthetic_phi_ifm(
+    ground_truth: DigitalTwin,
+    n_points: int = 15,
+    noise_std: float = 1e-3,
+) -> dict:
+    """One fringe per phase shifter. Returns dict keyed by PS index, each value
+    holding phi_sweep, intensity_sweep, input_port, output_port."""
+    ...
+
+def model_fringe(
+    model: DigitalTwin,
+    ps_index: int,
+    phi_sweep: np.ndarray,
+    input_port: int,
+    output_port: int,
+) -> np.ndarray:
+    """Predicted monitored-output intensity along the phase sweep."""
+    ...
+
+def fit_fringe_fast(
+    phi_sweep: np.ndarray,
+    measured: np.ndarray,
+    model_f: np.ndarray,       # model_fringe output on the same phi_sweep grid
+) -> float:
+    """Three-parameter fit a + b * f(phi + delta_phi). Returns delta_phi."""
+    ...
+
+def fit_fringe_precise(
+    phi_sweep: np.ndarray,
+    measured: np.ndarray,
+    model: DigitalTwin,
+    ps_index: int,
+    input_port: int,
+    output_port: int,
+) -> float:
+    """Single-parameter optimisation over delta_phi only. Returns delta_phi."""
+    ...
+
+def run_phi_ifm_stage(
+    model: DigitalTwin,
+    phi_ifm_data: dict,
+    method: str = "fast",      # "fast" or "precise"
+) -> torch.Tensor:
+    """Run one phi-IFM stage. Returns the updated c_0 tensor. Does not mutate
+    C_2, R, T_out."""
+    ...
+```
+
 ---
 
 ## 10. Pitfalls and design notes
@@ -429,6 +610,14 @@ class PICDataset(torch.utils.data.Dataset):
 11. **Test the forward model first.** With `c_0 = 0`, `C_2 = 0`, `R = 0.5`, `T_out = 1`, the forward pass on a Clements mesh should produce a unitary `U_0` (verify `U_0.conj().T @ U_0 ≈ I` up to float precision). This catches mesh-construction bugs before any training is attempted.
 
 12. **Test the gradient flow.** Run a single training step and check that the gradients of `C_2_raw`, `R_logit`, `T_logit` are non-zero, while `c_0` has no gradient (or is not in the parameter list at all).
+
+13. **The phase-voltage solver is NumPy, not torch.** The φ-IFM solver (§7.5.3) is not part of any autograd graph. `C_2`, `c_0`, `R`, `T_out` are read out of the fixed `DigitalTwin` with `.detach().cpu().numpy()`. Do not attempt to backpropagate through the solver.
+
+14. **`wrap_to_pi` must be applied to the phase difference, not the phases.** In the solver, the quantity that is taken modulo 2π is `phi_now - phi_target`, wrapped into `(-π, π]`. Wrapping the individual phase vectors instead introduces discontinuities and the solver will not converge.
+
+15. **Synthetic φ-IFM does not need realistic routing.** When generating synthetic fringes, the input/output port pair and the routing-PS phases can be chosen freely (even trivially: any input port, any output port, zero routing phases). The forward model is evaluated directly on the target phase vector. Realistic routing (direct paths, bar/cross settings) is only required for real-hardware φ-IFM and depends on the Supplement C.3 characterization order, which is out of scope here.
+
+16. **φ-IFM updates `c_0` only.** During a φ-IFM stage, `C_2`, `R`, `T_out` are frozen — they keep the values learned by the preceding ML stage. The φ-IFM stage writes back only `c_0`. After φ-IFM, the next ML stage re-freezes `c_0` (now refined) and re-opens `C_2`, `R`, `T_out`. This mirrors Pitfall 2: `c_0` is never trained by gradient descent; it is fitted by the fringe-fit routines instead.
 
 ---
 

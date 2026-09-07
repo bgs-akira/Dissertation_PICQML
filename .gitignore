@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# uv / venv
+.venv/
+.python-version
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Data artefacts (keep data/README.md; ignore the heavy stuff)
+data/*.npy
+data/*.pt
+data/*.h5
+
+# Script outputs
+outputs/
+
+# Claude Code local settings (personal overrides, not for team)
+.claude/settings.local.json
+
+# Reference papers -- keep references/README.md (the manifest); don't
+# commit the PDFs themselves (copyright, plus git is bad at binary blobs).
+references/*.pdf
+references/*.epub
+references/*.djvu

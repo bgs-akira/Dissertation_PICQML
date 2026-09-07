@@ -1,0 +1,22 @@
+[project]
+name = "picqml"
+version = "0.1.0"
+description = "ML stage of the Fyrillas et al. clear-box PIC characterisation protocol"
+authors = [
+    { name = "bgs-akira", email = "bgs.akira@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "matplotlib>=3.10.9",
+    "numpy>=2.4.4",
+    "torch>=2.12.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

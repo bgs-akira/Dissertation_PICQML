@@ -1,0 +1,1041 @@
+=== Page 1 ===
+Supplemental Document
+Scalable machine learning-assisted clear-box
+characterization for optimally controlled
+photonic circuits: supplement
+ANDREAS FYRILLAS ,1,2, ∗
+ OLIVIER FAURE ,1 NICOLAS MARING ,1
+JEAN SENELLART ,1 AND NADIA BELABAS 2
+1Quandela, 7 Rue Léonard de Vinci, 91300 Massy, France
+2Centre for Nanosciences and Nanotechnologies, CNRS, Université Paris-Saclay, UMR 9001, 10 Boulevard
+Thomas Gobert, 91120, Palaiseau, France
+∗andreas.fyrillas@quandela.com
+This supplement published with Optica Publishing Group on 19 March 2024 by The Authors
+under the terms of the Creative Commons Attribution 4.0 License in the format provided by the
+authors and unedited. Further distribution of this work must maintain attribution to the author(s)
+and the published article’s title, journal citation, and DOI.
+Supplement DOI: https://doi.org/10.6084/m9.figshare.25266940
+Parent Article DOI: https://doi.org/10.1364/OPTICA.512148
+=== Page 2 ===
+Supplementary material to Scalable machine learning-assisted clear-box characterization for
+optimally controlled photonic circuits
+Andreas Fyrillas,1, 2 Olivier Faure,1 Nicolas Maring,1 Jean Senellart,1 and Nadia Belabas 2
+1Quandela, 7 Rue Léonard de Vinci, 91300 Massy, France
+2Centre for Nanosciences and Nanotechnologies, CNRS, Université Paris-Saclay,
+UMR 9001, 10 Boulevard Thomas Gobert, 91120, Palaiseau, France
+CONTENTS
+A. STATE OF THE ART IN PHOTONIC CHIP CHARACTERIZATION AND OPTIMAL CONTROL 1
+B. ELECTRIC CROSSTALK 3
+C. INTERFERENCE FRINGE MEASUREMENTS 4
+1. MZIs and meta-MZIs 4
+2. Characterization of phase shifters with interference fringe measurements 5
+3. Automated characterization protocol 6
+1. MZI characterization 6
+2. External PS characterization 8
+4. Impact of imperfections on measurement accuracy 9
+1. Beamsplitter reflectivity errors 9
+2. Thermal crosstalk 9
+D. PHOTONIC CHIP ACCURACY METRICS 10
+1. Total variation distance 10
+2. Fidelity 10
+3. Amplitude fidelity 11
+4. Other metrics in the literature 12
+E. SIMULATED CHARACTERIZATION OF A 24-MODE CLEMENTS INTERFEROMETER 12
+F . PHASES COMPUTATION BY GLOBAL OPTIMIZATION 13
+G. MITIGATION OF INHOMOGENEOUS INPUT AND OUTPUT TRANSMISSIONS 14
+H. PHASE-VOLTAGE RELATION SOLVER 15
+References 16
+A. STATE OF THE ART IN PHOTONIC CHIP CHARACTERIZATION AND OPTIMAL CONTROL
+We summarize in Table I the state of the art regarding chip characterization and optimal control. We are interested in
+methods providing the highest standard of characterization and reconfiguration control for PICs, that is by allowing to im-
+plement entire unitary matrices by direct dialling. This excludes from our study self-configuration methods limited to light
+routing from a single input to one output, or partial unitary matrix implementation [6–8]. PIC characterization and control
+processes should satisfy:
+• high accuracy of the characterization, here measured by the circuit amplitude fidelity (see App. D 3) which quantifies
+the difference between the measured output light intensity distributions and the model prediction.
+• sample efficiency, i.e. the model is trained with as few measurements as possible. To assess the sample efficiency of a
+method, we define
+sample cost = number of training samples
+n2
+PS
+(1)
+=== Page 3 ===
+2
+Characterization
+metrics
+Control
+metrics
+Approach ML Imperfections taken
+into account PIC Circuit
+1 − Fa
+Sample
+cost
+Parameter
+cost
+Unitary
+1 − Fa
+[1],2021 Black-box NN all 3 modes
+2 PS - 2400
+(exponential) 20750 -
+[2],2023 Grey-box NN all 3 modes
+4 PS - 1300 450 0.26 % a
+[3],2021 Clear-box No passive phases 12-mode CI
+126 PS - - - 9.6 %
+(Haar-random)
+[4],2022 Clear-box GD
+passive phases,
+thermal crosstalk,
+beamsplitter reflectivity,
+output transmissions
+6-mode CI
+36 PS 3.1 % ≥ 23 b - 1.3 %
+(Haar-random)
+[5],2023 - - - 20-mode CI
+380 PS - - - 2.6 %
+(Haar-random)
+This work Clear-box GD
+passive phases,
+thermal crosstalk,
+beamsplitter reflectivity,
+input/output transmissions
+12-mode CI
+126 PS 0.08 % 1.4 1 0.23 % / 0.15 % c
+(Haar-random)
+a Distribution of unitary matrices is not specified.
+b Voltage sweeps of phase shifters not included.
+c Raw value / value with output losses compensation
+TABLE I. State of the art for photonic integrated circuit (PIC) characterization and optimal control. -: data not available. Approach)
+Black-box: no model for the relation between observed probabilities and applied voltages/electric currents. Gray-box: partial model,
+where the PIC is not modelled and the measurement obeys the laws of quantum mechanics. Clear-box: full model of the PIC and its
+imperfections. ML) If machine-learning has been used. NN: neural network. GD: model fit by gradient descent. Imperfections taken into
+account) Which PIC imperfections have been considered. Black- and gray-box approaches take by definition all types of imperfections
+into account, including imperfections that can be hard to model like nonlinear effects on light. PIC) Photonic chip used for experimental
+validation. CI: Clements interferometer, PS: thermo-optic phase shifter. Circuit 1 − Fa ) Amplitude infidelity (see App. D 3) between
+measured output light intensity distributions and corresponding model predictions. Quantifies accuracy of the characterization. The
+lower, the better. Sample cost and Parameter cost) Estimation of sample and computational efficiency. The lower the better. See App. A.
+Unitary 1−Fa ) Amplitude infidelity between target unitary matrix and implemented unitary matrix. The lower, the better. Haar-random:
+target unitary matrices are Haar-randomly chosen.
+where a training sample is an output light distribution measurement used to train the model and nPS is the number
+of phase shifters of the PIC. We have chosen n2
+PS in the denominator because the dominant imperfection in terms of
+number of parameters to estimate is thermal crosstalk, which scales asn2
+PS. Hence n2
+PS is good indicator of the amount
+of information to gather to characterize a given PIC.
+• computational efficiency, defined as the processing power required to train a model. We define a metric
+parameter cost = number of model parameters
+n2
+PS
+(2)
+which evaluates the number of model parameters to train for a given PIC.
+• high-fidelity implementation of unitary matrices
+It is worth noting that when using black- or gray-box approaches for PIC control, it is necessary to train additional machine
+learning models for imperfection mitigation (e.g. the "unitary controller" neural network in [2]).
+From Table I, our method yields the highest characterization and unitary implementation accuracy, while guaranteeing
+scalability thanks to low sample and parameter costs.
+The process of characterization inherently requires more computational resources compared to imperfection mitigation.
+Indeed, imperfection mitigation like references [9, 10] tends to scale linearly with nPS, whereas PIC characterization with
+crosstalk depends on n2
+PS. Furthermore, while imperfection mitigation appears to benefit from efficient algorithmic ap-
+proaches, PIC characterization currently leans on machine learning.
+=== Page 4 ===
+3
+Phase shifter 1
+Phase shifter 2
+FIG. 1.
+B. ELECTRIC CROSSTALK
+We show in this appendix that endowing our virtual replica model with a matrix phase-voltage relation is insufficient for
+characterizing electric crosstalk and that a third-order-tensor relation is needed for an accurate crosstalk characterisation.
+We consequently discuss how to tackle the problem from a practical point of view. We consider an elementary PIC with two
+voltage-controlled thermo-optic phase shifters sharing a common ground depicted on Fig. 1. The phase shifters can each
+be modelled by a resistor with resistance R, and the ground has a resistance Rg . We list our assumptions in this model:
+1. when taken individually, each phase shifter has a phase-voltage response φ(V ) ∝ V 2/R (this is the case for ideal
+thermo-optic phase shifters, whose response must be proportional to the power dissipated via the Joule effect).
+2. there is no thermal crosstalk between phase shifters
+3. R does not depend on heater temperature
+On the considered PIC, an operator applies voltagesV1 and V2 on phase shifters 1 and 2 respectively, targeting phase shifts
+φ1 ∝ V 2
+1 /R and φ2 ∝ V 2
+2 /R on phase shifters 1 and 2. Because the phase shifters share a common ground, the real voltages
+U1 and U2 applied on the phase shifters are different fromV1 and V2. From Kirchhoff’ s law and Ohm’ s law, solving forU1 and
+U2 yields
+
+
+
+U1 =
+(R+Rg )V1−Rg V2
+R+2Rg
+U2 =
+(R+Rg )V2−Rg V1
+R+2Rg
+(3)
+confirming that V1 ̸= U1 and V2 ̸= U2. The phase-voltage relation of each phase shifter is then of the form
+φ = αV 2
+1 + βV1V2 + γV 2
+2 . (4)
+In the general case of nPS on-chip phase shifters, the physical phase applied on phase shifter i is of the form:
+φ(i ) =
+X
+k,l
+g (i )
+k,l V (k)V (l) (5)
+where V (k) is the voltage applied on phase shifter k. The n3
+PS numbers g (i )
+k,l form an order 3 tensor. Trading the matrix phase-
+voltage relation of the virtual replica for an order 3 tensor relation entails the the number of training data samples for the
+machine learning stages of the characterization protocol increases from n2
+PS to n3
+PS. To avoid the n3
+PS growth of the dataset
+with increasing PIC size, resource-efficient alternative approaches are to use current-controlled reconfigurable components
+that are immune to electric crosstalk, or to measure the resistances of the ground resistor and phase shifters resistors to
+compensate electric crosstalk directly.
+=== Page 5 ===
+4
+C. INTERFERENCE FRINGE MEASUREMENTS
+Interference fringe measurements (IFM) are the standard method for characterizing on-chip phase shifters (PS) (see [11]
+for example). We model the phase-voltage relation of a photonic integrated circuit (PIC) linking the implemented phases ⃗φ
+to the applied voltages ⃗V as in Sec. 2 in the main text:
+⃗φ =
+X
+k≥1
+Ck · ⃗V ⊙k +⃗c0 (6)
+where ⃗c0 is a vector withnPS entries containing the passive phases (nPS is the number of on-chip phase shifters),⊙ represents
+element-wise exponentiation, and the Ck are nPS × nPS matrices.
+In our characterization protocol, we use an initial V-IFM to estimate the passive phases⃗c0 and the self-heating coefficients
+(diagonal elements of the Ck matrices) of each PS. The V-IFM stage consists in sweeping the control voltage of each PS,
+recording the interference fringe at the circuit output and fitting it with a suitable model. In our characterization process,
+we also introduce φ-IFMs stages, where each PS is swept in phase from 0 to 2π by solving the learned phase-voltage relation.
+φ-IFMs are performed to update the passive phases stored in the model parameters of the virtual replica.
+1. MZIs and meta-MZIs
+cross
+bal
+bar
+MZI
+external PS
+MZI PS
+meta-MZI for 
+head MZI tail MZI
+a) c)
+b)
+FIG. 2. a) An MZI consists in two beamsplitters and a PS. MZIs are photonic circuit building blocks with 2 inputs and outputs, here
+represented as blue squares. PS in MZIs are called MZI PS (pink retangles) while others are external PS (purple rectangles). b) Depending
+on the value of the phase, an MZI can realize cross, balanced (bal) and bar configurations. c) We adopt here a schematic view of the same
+circuit for clarity. A meta-MZI for the external PSφext is formed by setting the head and tail MZIs to the balanced configuration. The other
+MZIs are set to the bar configuration to redirect entirely the light from the head MZI to the tail one.
+Interferometer meshes feature Mach-Zehnder interferometers, which are photonic circuit building blocks composed of 2
+beamsplitters and a PS in-between (see Fig. 2a). MZIs act as tunable beamsplitters. Assuming that the MZI beamsplitters
+have reflectivity 0.5, the MZI can be set to the following configurations depending on the implemented phase on its MZI PS
+(see Fig. 2b):
+• cross configuration: for φ = 0, the MZI performs a perfect swap between the two input modes
+• balanced (bal) configuration: for φ = π/2, the MZI acts like a symmetric beamsplitter
+• bar configuration: for φ = π, the MZI acts like a perfect mirror
+On-chip reconfigurable PSs are either categorized as MZI PSs, enclosed in an Mach-Zehnder, or external PSs (see Fig. 2a).
+Still, an external PS can be used to form an MZI by setting a preceding MZI (named head MZI) and a succeeding MZI (named
+tail MZI) to the balanced configuration (see Fig. 2c), hence mimicking the structure of a standard MZI. Such a circuit setting
+is called meta-MZI. If other MZIs are present on the light path between the head and tail MZI, their configuration must be
+chosen such that the light is routed from the head MZI to the tail MZI.
+=== Page 6 ===
+5
+a)
+ b)
+ c)
+FIG. 3. Light splitting ratio as a function of the implemented phase for an MZI and different meta-MZIs
+We now discuss the dependence of the light splitting ratio as a function of the implemented phase for MZIs and meta-
+MZIs. The unitary matrix associated to an MZI from Fig. 2 is
+i e
+i φ
+2
+
+−sin
+³ φ
+2
+´
+cos
+³ φ
+2
+´
+cos
+³ φ
+2
+´
+sin
+³ φ
+2
+´
+
+. (7)
+Hence, when light enters from the MZI top mode, a fraction cos 2(φ/2) is transmitted to the bottom mode (see Fig. 3). For
+a meta-MZI consisting in 2 MZIs in the balanced configuration, the transmitted fraction of light is sin 2(φ/2). Inserting an
+additional MZI in the bar configuration on the top mode reverts the transmitted fraction back to cos 2(φ/2). Consequently,
+meta-MZIs exhibit an oscillating output light intensity when sweeping their associated external phase that is reminiscent of
+standard MZIs. The exact dependence of the splitting ratio of a meta-MZI is however determined by the number of traversed
+components between the head and tail MZIs.
+2. Characterization of phase shifters with interference fringe measurements
+We present here the different steps for characterizing a given phase shifter denoted PSi .
+1. Light routing. Given an input for injecting light into the photonic circuit and an output port monitored by a detector,
+we set up a route in the circuit such that the light passes through the MZI or chosen meta-MZI containing PS i . To
+set up this route, bar or cross configurations are implemented on previously characterized MZIs. Appropriate routes
+must not allow the injected light to recombine with itself in an uncontrolled way. Parasitic recombinations cause the
+observed interference fringe to shift, hence leading to imprecise measurements. We call "direct paths" light routes
+on which it is not possible for light to interfere with itself. Alternatively, light can be safely routed through already
+characterized MZIs. We show on Fig. 4 a light routing example.
+2. Voltage/phase sweepOnce the route has been established, the voltage or phase of PSi is swept and the measured light
+intensities are saved for processing. In the case of a phase sweep, the voltages to apply on the PIC are computed from
+the currently known phase-voltage relation stored in the virtual replica model parameters. Only PSi and the subset of
+active PSs used to route light are taken into account when solving the phase-voltage relation, in order to keep crosstalk
+levels and the number of heating PSs low.
+3. Measured data processing We assume for clarity a phase-relation ⃗φ = C2 · ⃗V ⊙2 +⃗c0.
+• For a voltage sweep, the measured oscillation is of the form
+f (V ) = ai cos2
+Ã
+C (i ,i )
+2 V 2 + c(i )
+0 − θi
+2
+!
++ bi (8)
+where C (i ,i )
+2 is the self-heating coefficient, c(i )
+0 is the passive phase, θi is an optional phase offset, and ai and bi
+are additional fit parameters. The phase offset θi is computed in advance taking into account the light routing
+input and output port of the MZI or meta-MZI containing PS i . If PS i is an external PS, the phase offset θi also
+depends on the structure of associated meta-MZI (see App. C 1).
+Fitting the data yields an estimation of the passive phase c(i )
+0 and self-heating coefficient C (i ,i )
+2 .
+• For a phase sweep, we use two methods for processing the data. The fast method generates the expected output
+f (φ) using the beamsplitter reflectivities and output transmissions currently learned by the virtual replica. The
+data points are fitted with a + b · f (φ + δφ), where the fit parameters are a,b and δφ. The passive phase of PS i is
+then updated from c(i )
+0 to c(i )
+0 + δφ. The fit quality of the fast method, that is the distance between the data points
+=== Page 7 ===
+6
+and the fit curve, will stagnate starting from a certain (ML + φ-IFM) characterization iteration (see Sec. 3.D).
+When the fit quality starts to stagnate with the fast method, the precise fit protocol is used. For the precise fit,
+an optimization is run to find the passive phase update c0 + δφ such that the generated output curve reproduces
+best the measured data.
+or
+0
+1
+2
+3
+4
+5
+6
+controlled light path direct light path
+or
+shifted
+valid
+0
+1
+2
+3
+4
+5
+6
+FIG. 4. Guidelines for light routing inside the PIC. Squares represent MZIs. The PS of green MZIs has been characterized, hence green
+MZIs can be controlled and set to the bar configuration. The red MZI contains the PS that is to be characterized, with an unknown phase-
+voltage relation φ(V ). The green light path represents a valid light route to characterizeφ(V ). Light is injected in input 2, two characterized
+MZIs are set to the bar configuration to route all the light to the red MZI. Starting from the red MZI, we do not control light routing as the
+blue MZIs are unknown. We monitor output 0 because the light path between the red MZI and the output is direct, i.e. uncontrolled light
+emitted by the red MZI is not able to recombine with itself on the green path. On the contrary, the red light path is not direct. Red wavy
+light interferes with the red light path, leading to a shifted measured interference fringe on output 2.
+3. Automated characterization protocol
+Establishing the IFM protocol, that is the sequence of characterization for the on-chip PS, as well as the associated light
+routes, input ports and output ports, is straightforward enough to be implemented by hand on small PICs, but as the PICs
+grow in size and complexity, it becomes impractical. We designed an algorithm that generates the IFM protocol from the
+PIC logical layout and the used input ports. We describe in the following how the algorithm works.
+We denote m the number of input and output ports of the PIC to characterize. First, the PIC is translated into a graph
+G with m root input nodes as in Fig. 5. Each node in the graph is either an MZI, an external PS or an input/output port.
+The PIC layout dictates the arrangement of the graph nodes and edges. The direction of light propagation in the PIC defines
+upstream and downstream components. Each node has as following attributes:
+• parents, the indices of the nodes directly upstream of the node
+• children, the indices of the nodes directly downstream of the node
+To establish the IFM protocol of the PIC, the algorithm generates first the protocol for the MZI PSs, then appends the se-
+quence for the external PSs. The same IFM protocol is used for V-IFMs and φ-IFMs.
+1. MZI characterization
+The procedure for MZI characterization is shown on Fig. 6 in the case of an 8-mode Clements interferometer.
+1. Direct path The algorithm starts by finding the direct light paths of the PIC, and characterizes the PSs corresponding
+to the MZI nodes along these paths. This is a reliable method for characterizing PSs within an uncharacterized circuit.
+Direct light paths guarantee that the injected light does not interfere with itself in an uncontrolled manner, which
+would offset the measured output fringe and lead to wrong passive phase estimation.
+2. Children The nodes characterized in step 1 can now be set to bar or cross configuration. Hence, light can be routed to
+their child nodes. The algorithm determines the output port to monitor by finding direct paths starting from the child
+nodes. This procedure is iterated to characterize the next generation of child nodes.
+=== Page 8 ===
+7
+5
+4
+1
+0
+1
+2
+3
+0
+1
+2
+3
+In 0
+0
+Root external PS 3
+parent = {2}
+child = {8}
+MZI 6
+parents = {0, 4}
+children = {7, out 0}
+0
+2
+4
+6
+8
+91
+3
+5
+7
+In 1
+In 2
+In 3 3
+2
+9
+7
+6
+8
+Out 0
+Out 1
+Out 2
+Out 3
+FIG. 5. The PIC on the left is equivalent to its graph representation G on the right. The nodes of the graph can be MZIs, external PS or
+input/output ports.
+1) Direct paths
+2) Children
+ ...
+3) Parents
+a) b)
+a) b)
+a) b)
+Light routing
+Light input mode
+Detection mode
+Uncharacterized node
+Characterized node
+Node is being 
+characterized
+Characterization order
+c)
+0
+1
+2
+3
+4
+5
+6
+7
+c)
+FIG. 6. MZI characterization procedure for an 8-mode Clements interferometer. External PSs are not shown for clarity. Blue notes
+indicate nodes that have not been characterized yet. Green nodes have been characterized. Light is only injected in even input ports.
+1) The algorithm starts by finding the direct light paths of the PIC and characterizes the nodes on the path. Thick red lines indicate
+the light input port, light routing, nodes being characterized, and detection output port. The red transparent arrow gives the order of
+characterization. 2) Subsequently, the children of the characterized nodes are processed. We only show two steps out of 6 for brevity. 3)
+Finally, the parents of the direct path nodes are characterized.
+3. Parents Once there are no descendants left in step 2, the algorithm characterizes the parent nodes of the direct path
+nodes characterized in step 1. The procedure is equivalent to the step 2. The light routes are established by letting the
+algorithm propagate light backwards from the output to the input ports. The procedure is iterated until all nodes are
+characterized.
+When routing light through characterized nodes, we use bar configurations. In our experimental regime where the 928
+nm light operation wavelength is strongly detuned from the 940 nm operation wavelength, the bar configuration is more
+faithfully implemented by MZIs than the cross configuration. In the case where random fabrication errors dominate, cross
+configurations should be preferred.
+The protocol generation algorithm requires a function that determines direct light paths in the PIC. To find such paths,
+each node in the graph G is provided with an integer attribute called illumination counting the number of incident
+light beams on the node. The illumination of each node is computed as displayed on Fig. 7. By backtracking the nodes
+illumination 1, the function establishes the direct light paths starting from a given node.
+=== Page 9 ===
+8
+1
+1
+1
+1
+1
+1
+2
+2
+2
+2
+2
+2
+FIG. 7. Method for finding direct light paths. Blue circles are MZI nodes. To find a direct light path that extends from the middle red
+node to the PIC outputs, a beam of light is propagated starting from that MZI node. At each encountered MZI node, the beam splits in 2.
+The number under each node is the illumination attribute, which counts the number of incident beams on the node. Once the beam
+reaches the output, the algorithm backtracks the paths formed by nodes with illumination 1. The suitable paths are marked by a thick red
+line. Light travelling along these paths is not affected by parasitic interferences with other parts of the beam.
+We have also implemented a function that finds light routes through characterized MZI nodes. To determine the light
+routes for parent nodes (step 3 on Fig. 6), we use the same functions, but with light propagating backwards in the circuit.
+2. External PS characterization
+1
+1
+2
+1
+1
+H T
+H T1 2
+1
+1 2
+1
+2
+H T1 2
+1
+1
+top child
+bottom child
+a) b)
+2
+2
+FIG. 8. Meta-MZI determination procedure Blue circles are MZIs. Purple circle is the external PS to characterize. Blue circles with thin
+red outline are illuminated MZI nodes by the search beam. Blue circles with thick red outline are MZI nodes illuminated by the search
+beam that participate in the adequate meta-MZI. Thick red waveguides participate in the meta-MZI while thin red waveguides are simply
+illuminated. a) In the case of a Clements interferometer, the head MZI (H) is simply the parent of the external PS and the tail-MZI is the
+first MZI with illumination 2 (T). b) We illustrate our method in a more complex mesh. The appropriate head MZI is marked (H) and the
+tail MZI is marked (T) Top: Light is propagated from the first parent of the external PS. The MZIs with illumination 2 are stored in a list
+L. Bottom: Light is propagated from the top child of the head MZI. The MZI with illumination 2 is stored in Ltop. We do the same with
+the bottom child and Lbottom. The searched tail MZI is the element from L that does not belong to Ltop and Lbottom and that is closest to
+the head-MZI.
+Once all the MZIs have been characterized, we turn our attention to the remaining external phase shifters. To characterize
+an external PS, it must be enclosed in an appropriate meta-MZI (see App. C 1).
+Our algorithm constructs appropriate meta-MZIs for a given external PS and uses the shortest one to perform the char-
+acterization, that is the one involving the fewest MZI nodes. The method is illustrated in Fig. 8. The algorithm tests if the
+closest MZI node upstream of the external PS can be used as a head MZI for a meta-MZI by propagating a beam of light from
+that MZI node and retrieving the listL of MZI nodes with illumination attribute 2. The appropriate tail MZI is the element
+of L that collects two direct paths of light emanating from the head MZI, with only one of them traversing the external PS. L
+may contain MZI nodes that recombine light emanating from only one of the outputs of the head MZI (see Fig. 8b). To get
+rid of them, we collect the list L1 (resp. L2) of MZIs with illumination 2 obtained by propagating light from the top (resp.
+bottom) child of the head MZI. The list of suitable tail MZIs for the meta-MZI is then L \ {L1 ∪ L2}. This method works with
+more general meshes than Clements interferometers. If the first parent of the external PS to characterize does not yield any
+=== Page 10 ===
+9
+suitable meta-MZI, the algorithm tries further ancestors.
+If the meta-MZI includes other external PSs, they must have been already characterized and held at zero radians while the
+PS of interest is swept. This gives the order in which the external PSs are characterized.
+4. Impact of imperfections on measurement accuracy
+We examine the impact of PIC imperfections on estimations of the passive phase ⃗c0 in a V-IFM. Differential output trans-
+missions do not affect the measurement, because the fringe is measured in raw detector units. This is different from the
+φ-IFM case, where the output intensity distribution is normalized to sum to 1. Thus we will consider only hardware beam-
+splitter reflectivity errors and thermal crosstalk.
+1. Beamsplitter reflectivity errors
+a) b) c)
+FIG. 9. Impact of beamsplitter reflectivity errors on passive phase measurement a) We simulate the interference fringe of an MZI
+whose beamsplitters have reflectivities R1 and R2, the ideal case being R1 = R2 = 0.5. We input and detect on the top mode. If R1 =
+R2 ̸= 0.5 (systematic error) or R1 = 1 − R2 (symmetric fabrication error around 0.5), the fringe is not displaced and the passive phase is
+correctly measured. b) Here we simulate the same process but for an external PS between two MZIs, forming a meta-MZI as is required
+to characterize the external PS. For errors of the type R1 = 1 − R2 the fringe does not shift, contrary to R1 = R2 ̸= 0.5. This entails errors
+in the estimation of the passive phase. c) We plot this measurement error on the passive phase in the setting R1 = R2 = R ̸= 0.5 as a
+function of R for two cases. In the first case, we apply a phase π/2 on the two MZIs enclosing the external PS. In the second case, we
+correct the MZI phases such that they continue acting like symmetric beamsplitters even ifR ̸= 0.5. This procedure reduces measurement
+errors significantly only when R deviates strongly from 0.5. The dashed line represents the average reflectivity value on the PIC we used to
+validate experimentally our process (Sec. 5 in main text), causing a systematic error of -250 mrad on the measured passive phase. r
+Beamsplitter reflectivity errors do not affect the measurement of the passive phase of MZI PSs as simulated in Fig. 9a, but
+they do affect the measurement for an external PS which is enclosed in a meta-MZI (see App. C 1). The interference fringe
+is displaced by systematic beamsplitter reflectivity errors (see Fig. 9b), leading to a wrong estimation of the passive phase in
+practice for external PS. The value of this error is plotted as a function of reflectivity on Fig. 9c.
+2. Thermal crosstalk
+When performing a voltage sweep on a designated PS, light is routed from a PIC input to the PS and then to an output port.
+Hence some components emit heat while the voltage is swept to achieve this routing. This causes the fringe to be displaced,
+because the observed phase ˜φj for PS j is
+˜φj = φj +
+X
+i ̸=j
+(C2)j,i V 2
+i (9)
+=== Page 11 ===
+10
+where the first term φj is the one we want to observe and the second term is a parasitic shift due thermal crosstalk. We
+estimate the impact by running an IFM simulation with the same parameters as our simulations described in Methods on
+a 12-mode Clements interferometer. The average estimation error on the passive phase is 100 mrad, following the protocol
+generated by our algorithm described in App. C 3 which already seeks to minimize the number of active components.
+D. PHOTONIC CHIP ACCURACY METRICS
+We expose in this section several metrics used to assess the amount of control over a photonic integrated circuit (PIC).
+1. Total variation distance
+We use the total variation distance (TVD) to quantify the difference between two PIC output light intensity distributions
+⃗p and ⃗q, which are vectors whose components sum to one. The TVD is computed as
+TVD(⃗p,⃗q) = 1
+2
+X
+i
+|pi − qi | (10)
+The TVD expresses the amount of difference between ⃗p and ⃗q with a number between 0 ( ⃗p = ⃗q) and 1 (maximal difference
+between ⃗p and ⃗q). The TVD is more natural than the mean square error (MSE) for apprehending the amount of difference
+between an output light intensity distribution acquired on a physical PIC and the corresponding virtual replica prediction.
+We use MSE nevertheless as the cost function for the gradient descent in the ML characterization stage (see Sec. 3.C). In
+the main text, to assess the quality of the virtual replica training, we monitor the average TVD achieved on the test dataset,
+denoted TVDtest.
+2. Fidelity
+It is essential in our study of PIC accuracy to be able to assess the difference between a unitary matrix U implemented by
+a PIC with m modes and a target unitary matrixV . A straightforward method for accomplishing this task involves employing
+a matrix inner product, and in this context, we adopt the Frobenius inner product [12]
+〈U ,V 〉F = Tr
+³
+U †V
+´
+(11)
+The Frobenius inner product is complex-valued, hence we fabricate a real quantity which we call the fidelity
+F (U ,V ) = |〈U ,V 〉F |
+m (12)
+The infidelity is defined as 1 − F . We show that the fidelity is a number between 0 and 1 and we provide the condition that
+leads to achieving the maximum fidelity of 1.
+Proposition. Let U and V be m × m unitary matrices.
+• 0 ≤ F (U ,V ) ≤ 1
+• F (U ,V ) = 1 ⇔ U = ei θV
+Proof. We use the Cauchy-Schwarz inequality for the Frobenius inner product yielding
+|〈U ,V 〉F | ≤ ∥U ∥F · ∥V ∥F (13)
+where ∥ · ∥F is the norm induced by the Frobenius inner product. We compute
+∥U ∥F =
+p
+〈U ,U 〉F =
+q
+Tr
+¡
+U †U
+¢
+=
+p
+Tr(Im) =
+p
+m (14)
+where we have used the unitarity of U for the third equality and Im is the identity matrix. The same applies for V . Hence,
+|〈U ,V 〉F | ≤ m (15)
+=== Page 12 ===
+11
+We have proven the first assertion. The Cauchy-Schwarz inequality is saturated if and only if
+U = λV (16)
+with λ a complex scaling factor. BecauseU and F have the same Frobenius norm, this implies|λ| = 1. This proves the second
+point.
+3. Amplitude fidelity
+Measuring the amplitude of the elements of the matrix U implemented by a PIC is straightforward. For each PIC input:
+1. Measure the output light intensity distribution ⃗p
+2. Normalize ⃗p such that its elements sum to 1
+3. Compute
+p
+⃗p, where the square root is applied element-wise
+The resulting vector yields the amplitudes of the elements of the i th column of U . In contrast, accessing the phase of these
+elements is a more complex, time-consuming and error-prone experimental process. Consequently, it is widely preferred in
+hardware experiments to measure and work with the matrix|U |, where the absolute value operator is applied element-wise.
+In particular, the elements of|U | are non-negative and the sum of the squares of each column of|U | sums to 1. Consequently,
+the metric of choice in the litterature denoted "amplitude fidelity" for evaluating the difference between two matricesP and
+Q satisfying these two properties is given by
+Fa (P,Q) =
+Tr
+¡
+P T Q
+¢
+m (17)
+The amplitude infidelity is defined as 1 − Fa. We show in the following how the amplitude fidelity compares to the fidelity.
+We also prove that the amplitude fidelity between two matrices is maximal if and only if these matrices are equal.
+Proposition. F (U ,V ) ≤ Fa (|U |, |V |)
+Proof. The inequality is readily obtained from
+F (U ,V ) = 1
+m
+¯¯¯¯¯
+X
+i ,j
+u∗
+i ,j vi ,j
+¯¯¯¯¯ ≤ 1
+m
+X
+i ,j
+|ui ,j ||vi ,j | = Fa (|U |, |V |) (18)
+Proposition. Let P and Q be m × m matrices whose elements are non-negative and whose columns sum to 1 when squared
+element-wise.
+• 0 ≤ Fa (P,Q) ≤ 1
+• Fa (P,Q) = 1 ⇔ P = Q
+Proof. The proof follows a similar path as the proof for the fidelity. The amplitude fidelity is related to the Frobenius inner
+product by
+Fa (P,Q) = 〈P,Q〉F
+m (19)
+We use the Cauchy-Schwarz inequality for the Frobenius inner product yielding
+〈P,Q〉F = |〈P,Q〉F | ≤ ∥P ∥F · ∥Q∥F (20)
+where ∥ · ∥F is the norm induced by the Frobenius inner product. We compute
+∥P ∥F =
+p
+〈P,P 〉F =
+q
+Tr
+¡
+P T P
+¢
+=
+vuut
+mX
+j =1
+Ã
+mX
+i =1
+p2
+i ,j
+!
+=
+vuut
+mX
+j =1
+1 =
+p
+m (21)
+=== Page 13 ===
+12
+where we have used the fact that the elements squared belonging to a same column ofP sum to 1 by assumption. The same
+applies for Q. Hence,
+|〈P,Q〉F | ≤ m (22)
+We have proven the first assertion. The Cauchy-Schwarz inequality is saturated if and only if
+P = λQ (23)
+with λ a real scaling factor. Because P and Q have the same Frobenius norm, this implies λ = 1. This proves the second
+point.
+Restricting to amplitudes is also beneficial, as the matrix implemented by a PIC is not unitary in general due to differential
+optical input and output transmissions. We only demand from acquired amplitude matrices to have normalized columns.
+There is however a caveat when restricting to the amplitudes. Measuring an amplitude fidelity Fa (|U |, |V |) = 1 does not
+automatically imply U = V in the general case. But in the context of matrices produced by PICs, the arguments of the
+elements of the matrices U and V are directly related to their amplitude. Hence, one can reasonably assume that achieving
+an amplitude fidelity of 1 with a PIC should correlate to a very good fidelity, if not also equal to 1.
+Experimentally, we do not measure the implemented matrix|U | on the PIC in its entirety. This is because our setup sends
+photons in every other input. Hence, the denominator m of Fa is replaced with the number of addressed inputs, which is 6
+in our case.
+4. Other metrics in the literature
+Reference [10] quantifies the difference between two m × m unitary matrices U and V using the Frobenius norm
+ε = ∥U −V ∥F
+pm . (24)
+We can relate it to the Frobenius inner product via
+Re
+½ 〈U ,V 〉F
+m
+¾
+= 1 − ε2
+2 . (25)
+In order of magnitude, we can relate it to our definition of fidelity
+F ≈ 1 − ε2
+2 . (26)
+Reference [2] works with the fidelity defined as ( Fa)2, and normalizes the acquired PIC amplitude matrices such that rows
+and columns sum to 1 when their elements are squared.
+E. SIMULATED CHARACTERIZATION OF A 24-MODE CLEMENTS INTERFEROMETER
+We carried out the simulation of a Clements interferometers on 24-modes, with crosstalk, beamsplitter reflectivity errors
+and inhomogeneous output losses. The parameters of the simulated physical device are initialized following the correspond-
+ing section in Methods, except the beamsplitter reflectivity values are (0.52 ± 0.01) and the crosstalk strength is 0.5 %. The
+learning rates have been modified to: ˆC2 : 5 × 10−6, ˆ⃗R : 10−4 and ˆ⃗Tout : 10−4. The number of epochs per machine learning
+stage is set to 1500. The number of training samples is approx. 300 000, chosen such that the data-to-parameter ratio equals
+1. We show on Fig. 10 that our characterization process reached the target TVD test = 10−3 in 6 iterations. The number of
+iterations may be reduced by further tuning the learning hyperparameters (learning rates, number of epochs per machine
+learning stage...). This demonstrates the ability of our process to maintain data-efficiency at higher numbers of modes.
+=== Page 14 ===
+13
+/uni00000014/uni00000015/uni00000016/uni00000017/uni00000018/uni00000019
+/uni0000002c/uni00000057/uni00000048/uni00000055/uni00000044/uni00000057/uni0000004c/uni00000052/uni00000051
+/uni00000014/uni00000013/uni00000016
+/uni00000014/uni00000013/uni00000015
+/uni00000030/uni0000004c/uni00000051/uni0000004c/uni00000050/uni00000058/uni00000050/uni00000003/uni00000037/uni00000039/uni00000027
+/uni00000037/uni00000055/uni00000044/uni0000004c/uni00000051
+/uni00000037 /uni00000048/uni00000056/uni00000057
+/uni00000013/uni00000014/uni00000013/uni00000013/uni00000015/uni00000013/uni00000013/uni00000016/uni00000013/uni00000013/uni00000017/uni00000013/uni00000013/uni00000018/uni00000013/uni00000013
+/uni00000013
+/uni00000014/uni00000013/uni00000013
+/uni00000015/uni00000013/uni00000013
+/uni00000016/uni00000013/uni00000013
+/uni00000017/uni00000013/uni00000013
+/uni00000018/uni00000013/uni00000013
+/uni00000013/uni00000011/uni00000013/uni00000013/uni00000013/uni00000015
+/uni00000013/uni00000011/uni00000013/uni00000013/uni00000013/uni00000014
+/uni00000013/uni00000011/uni00000013/uni00000013/uni00000013/uni00000013
+/uni00000013/uni00000011/uni00000013/uni00000013/uni00000013/uni00000014
+/uni00000013/uni00000011/uni00000013/uni00000013/uni00000013/uni00000015
+FIG. 10. Characterization of a simulated 24 ×24 Clements interferometer mesh using our protocol. Left) Minimum of reached TVD
+evaluated on test and training dataset for each (ML-IFM) iteration. Right) Estimated crosstalk matrix ˆC2. The values have been clipped to
+[-0.002, 0.002] for clearer visualization.
+F . PHASES COMPUTATION BY GLOBAL OPTIMIZATION
+We describe in this section the procedure for determining the phases⃗φ to apply on a photonic integrated circuit (PIC) such
+that the implemented unitary matrix U (⃗φ) closely approximates a target unitary matrix V . The cost function to minimize is
+C (⃗φ) = 1 − F 2 ¡
+U (⃗φ),V
+¢
+(27)
+= 1 −
+¯¯¯¯¯
+Tr
+£
+U †(⃗φ) ˆV
+¤
+m
+¯¯¯¯¯
+2
+(28)
+where F is the fidelity metric (see App. D) and m is the number of modes of the PIC. The cost function has a minimal value
+of 0 when U (⃗φ) and V differ only by a global phase factor (see App. D 2). We minimize the cost function by gradient descent.
+The gradient of C (⃗φ) can be expressed in closed-form as
+∂C
+∂φj
+(⃗φ) = 2
+m2 Re
+½
+Tr
+h
+U †(⃗φ) ˆV
+i
+Tr
+·
+V † ∂ ˆU
+∂φj
+(⃗φ)
+¸
+.
+¾
+(29)
+Following the properties of matrix-product derivation
+∂ ˆU
+∂φj
+(⃗φ) = ˆA
+
+
+0
+...
+0
+i ei φj
+0
+...
+0
+
+
+ˆB (30)
+where ˆA and ˆB are the unitary matrices produced respectively by the components before and after thej th phase shifter. The
+optimizer is L-BFGS implemented in C++ with the NLopt package [13].
+=== Page 15 ===
+14
+0
+1
+2
+3
+4
+5
+6
+8
+10
+7
+9
+11
+0
+1
+2
+3
+4
+5
+6
+8
+10
+7
+9
+11
+0
+1
+2
+3
+4
+5
+6
+8
+10
+7
+9
+11
+0
+1
+2
+3
+4
+5
+6
+8
+10
+7
+9
+11
+0
+1
+2
+3
+4
+5
+6
+8
+10
+7
+9
+11
+0
+1
+2
+3
+4
+5
+6
+8
+10
+7
+9
+11
+0
+1
+2
+3
+4
+5
+6
+8
+10
+7
+9
+11
+0
+1
+2
+3
+4
+5
+6
+8
+10
+7
+9
+11
+b) c)
+0
+1
+2
+3
+4
+5
+6
+8
+10
+7
+9
+11
+0
+1
+2
+3
+4
+5
+6
+8
+10
+7
+9
+11
+a)
+FIG. 11. Mitigation of inhomogeneous input and output ports transmissions for universal-scheme PICs. a) We consider here without
+loss of generality a Clements interferometer with m = 12 input and output ports and up to n = 6 input photons. The gray shade of input
+and output ports is an indicator for optical transmissions ⃗Tin and ⃗Tout. In the figure, a white square corresponds to perfect transmission
+T = 1. The target unitary matrix to implement on the PIC is denoted Ut . The pink area on the PIC corresponds to the implemented
+unitary matrix U , which is the matrix and tensor product of the blue building blocks representing smaller unitary matrices. The matrix U
+is compiled into phases as a single unitary matrix following Sec. 4.A, which does not limit the number, size or the depth of the building
+blocks. If the target matrix has dimensions 12 × 12 and all 6 photons are used, the target matrix Ut is implemented as is. b) Mitigation
+techniques can be applied if the number of used photons is less than 6. Top: we choose to use 3 photons. Bottom: the imperfection
+mitigation selects the photons injected in the 3 input ports with the most consistent transmission values (here 0, 4 and 6 which have
+similar shades of gray). The input photons need hence to be routed to their respective input with a permutation Pin before Ut . The PIC
+implements the unitary matrix U = Ut · Pin. c) Input and output transmissions can also be mitigated in an analog way if the target unitary
+has for instance dimensions 6 × 6. Top: The PIC implements here the unitary matrix Ut ⊗ I6 where I6 is the identity matrix on 6 modes.
+Bottom: the imperfection mitigation selects the 3 (resp. 6) input ports (resp. output ports) with the most consistent transmissions. Then
+appropriate permutations Pin and Pout are applied before and after Ut . The PIC implements Pout · (Ut ⊗ I6) · Pin
+G. MITIGATION OF INHOMOGENEOUS INPUT AND OUTPUT TRANSMISSIONS
+We consider in this section universal-scheme photonic integrated circuits (PICs), which can by definition implement any
+unitary matrix acting on the spatial input modes. The estimated input and output transmissions ˆ⃗Tin and ˆ⃗Tout by the virtual
+replica from the characterization protocol (see Fig. 2 in main text) can be harnessed to mitigate imperfections. In the case
+of uniform losses in the PIC, i.e. all input ports (resp. output ports) have transmission Tin (resp. Tout), post-selection on the
+number of detected photons is a type of photon loss mitigation that yields correct output probabilities. Post-selection is
+used in most linear optical quantum information protocols [14, 15].
+The case of inhomogeneous input and output port transmissions can be mitigated in particular cases, which we discuss
+in this section. We assume that the universal-scheme PIC has m input and output ports, and that up to n photons can be
+injected simultaneously into the PIC (in general n < m).
+• If the target unitary matrix Ut has dimensions m × m and n photons are used, the matrix is implemented as is (Fig.
+11a).
+• If the number of photons of used is strictly smaller than n, we select the input ports with the most homogeneous
+transmission values. To route the photons inside the chip, we add a permutation Pin before Ut (Fig. 11b). Our compi-
+lation process (see Sec. 4.A) takes as input the unitary matrix Ut · Pin and treats it as one single matrix to compute the
+corresponding phases. This mitigation technique does not impose limitations on the size of Ut .
+• If the dimensions of Ut are strictly smaller than m × m, we select the input and output ports with the most homoge-
+neous transmission values. Permutations Pin and Pout are added before and after Ut (Fig. 11c).
+=== Page 16 ===
+15
+/uni00000018/uni00000013/uni00000013/uni00000014/uni00000013/uni00000013/uni00000013/uni00000014/uni00000018/uni00000013/uni00000013/uni00000015/uni00000013/uni00000013/uni00000013
+nPS
+/uni00000013/uni00000011/uni00000013
+/uni00000013/uni00000011/uni00000015
+/uni00000013/uni00000011/uni00000017
+/uni00000013/uni00000011/uni00000019
+/uni00000013/uni00000011/uni0000001b
+/uni00000014/uni00000011/uni00000013
+/uni00000014/uni00000011/uni00000015/uni00000036/uni00000052/uni0000004f/uni00000059/uni00000048/uni00000055/uni00000003/uni00000048/uni0000005b/uni00000048/uni00000046/uni00000058/uni00000057/uni0000004c/uni00000052/uni00000051/uni00000003/uni00000057/uni0000004c/uni00000050/uni00000048/uni00000003/uni0000000b/uni00000056/uni0000000c
+/uni00000036/uni0000004c/uni00000050/uni00000058/uni0000004f/uni00000044/uni00000057/uni0000004c/uni00000052/uni00000051/uni00000003/uni00000055/uni00000058/uni00000051/uni00000056
+/uni00000032/uni00000055/uni00000047/uni00000048/uni00000055/uni00000003/uni00000016/uni00000003/uni00000049/uni0000004c/uni00000057
+FIG. 12. Phase-voltage equation solver scaling with the number of phase shifters nPS
+H. PHASE-VOLTAGE RELATION SOLVER
+We denote in this section the number of phase shifters of a photonic integrated circuit bynPS. The phase-voltage relation
+is an equation of the form
+⃗φ =
+X
+k≥1
+Ck ⃗V ⊙k +⃗c0 (31)
+relating the implemented phases of the phase shifters ⃗φ to the applied voltages ⃗V . ⃗c0 is a vector with nPS components
+containing the passive phases, ⊙ represents element-wise exponentiation, and Ck are nPS × nPS matrices. This equation
+possesses two additional distinctive characteristics: the off-diagonal elements of Ck are very small compared to its diagonal
+elements, because crosstalk is expected to depend on the distance between components. In addition, the components of ⃗φ
+are defined modulo 2π. We devised a custom iterative solver that harnesses these features to solve the equation.
+We briefly present how the solver approximates the voltages to implement target phases⃗φtarget. The voltages ⃗V are initial-
+ized with a zero vector. At each iteration:
+1. The phases ⃗φ(⃗V ) are computed
+2. The phase difference ⃗φ(⃗V ) − ⃗φtarget is computed modulo 2π.
+3. The voltages ⃗V are updated with a step proportional to the phase difference for each phase shifter.
+4. If voltage components are negative or beyond the voltage limit Vmax, they are cast within the interval [0, Vmax] with a
+modulo operation.
+The algorithm terminates when the maximum difference between ⃗φ(⃗V ) and ⃗φtarget is below some specified threshold. If
+the algorithm remains stuck in a local minimum, a random vector is added to ⃗V .
+We evaluate the time complexity of the solver. The amount of iterations needed for each voltage component to converge
+increases linearly with nPS. Evaluating ⃗φ(⃗V ) is a matrix-vector multiplication of complexity O(n2
+PS). The other operations
+within the iteration, like computing the difference between ⃗φ(⃗V ) and ⃗φtarget, are O(nPS). Hence, the time complexity of a
+single iteration is O(n2
+PS). The total complexity is thus O(n3
+PS).
+We verify this by running the solver on an increasing number of phase shifters. We generate ⃗c0 with uniformly chosen
+values in [−π, π]. A C2 matrix is generated by setting the diagonal elements to 0.034 and adding a gaussian random matrix
+with mean 0 and standard deviation 1 % of 0.034 (this corresponds to a PIC where each phase shifter interacts with every
+other one with a crosstalk strength of 1 %). We set the solver precision threshold to 0.1 mrad and Vmax = 15V . The voltage
+steps are set to∆φ×Vmax/10, where ∆φ is the phase difference between the current and target value for a given phase shifter.
+The algorithm shuffles the voltages after every 500 iterations. We plot on Fig. 12 the solver execution time against the number
+of phase shifters. The polynomial fit of order 3 agrees very well with the data points.
+=== Page 17 ===
+16
+[1] Cimini, V . et al. Calibration of multiparameter sensors via machine learning at the single-photon level. Physical Review Applied 15,
+044003 (2021).
+[2] Youssry, A. et al. Experimental graybox quantum system identification and control (2023). URL http://arxiv.org/abs/2206.
+12201. ArXiv:2206.12201 [physics, physics:quant-ph].
+[3] Taballione, C. et al. A universal fully reconfigurable 12-mode quantum photonic processor. Materials for Quantum Technology 1,
+035002 (2021).
+[4] Bandyopadhyay, S. et al. Single chip photonic deep neural network with accelerated training (2022). URL http://arxiv.org/abs/
+2208.01623. ArXiv:2208.01623 [physics].
+[5] Taballione, C. et al. 20-mode universal quantum photonic processor (2022). URL http://arxiv.org/abs/2203.01801.
+ArXiv:2203.01801 [quant-ph].
+[6] Dyakonov, I. V .et al. Reconfigurable photonics on a glass chip. Physical Review Applied 10, 044048 (2018).
+[7] Pérez-López, D., López, A., DasMahapatra, P . & Capmany, J. Multipurpose self-configuration of programmable photonic circuits.
+Nature Communications 11, 6359 (2020).
+[8] Kondratyev, I. V .et al. Large-scale error-tolerant programmable interferometer fabricated by femtosecond laser writing (2023). URL
+http://arxiv.org/abs/2308.13452.
+[9] Hamerly, R., Bandyopadhyay, S. & Englund, D. Accurate self-configuration of rectangular multiport interferometers. Physical Review
+Applied 18, 024019 (2022).
+[10] Bandyopadhyay, S., Hamerly, R., Hamerly, R. & Englund, D. Hardware error correction for programmable photonics. Optica 8,
+1247–1255 (2021).
+[11] Flamini, F .et al. Thermally reconfigurable quantum photonic circuits at telecom wavelength by femtosecond laser micromachining.
+Light: Science & Applications 4, e354–e354 (2015).
+[12] Hiai, F . & Petz, D. Introduction to Matrix Analysis and Applications . Universitext (Springer International Publishing, Cham, 2014).
+URL https://link.springer.com/10.1007/978-3-319-04150-6 .
+[13] Johnson, S. G. The NLopt nonlinear-optimization package. https://github.com/stevengj/nlopt (2007).
+[14] Maring, N. et al. A general-purpose single-photon-based quantum computing platform (2023). URLhttp://arxiv.org/abs/2306.
+00874. ArXiv:2306.00874 [quant-ph].
+[15] Mezher, R., Carvalho, A. F . & Mansfield, S. Solving graph problems with single-photons and linear optics (2023). URLhttp://arxiv.
+org/abs/2301.09594. ArXiv:2301.09594 [quant-ph].
