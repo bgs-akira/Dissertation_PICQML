@@ -34,7 +34,7 @@ from src.model import DigitalTwin
 from src.synthetic import ground_truth_model
 
 
-V_MAX = 14.0
+from src.data import X_MAX
 DTYPE = torch.float64
 
 
@@ -132,14 +132,16 @@ def build_setup(m, *, batch_size, noisy_seed, seed=0,
                 noise_c0=0.30, noise_c2_diag=2e-3,
                 n_train_target=None):
     torch.manual_seed(seed)
-    truth = ground_truth_model(m, seed=seed, dtype=DTYPE)
+    # Pinned to Clements: these scripts document the historic m=8 Adam
+    # overshoot on the Clements mesh and must keep reproducing it.
+    truth = ground_truth_model(m, seed=seed, dtype=DTYPE, scheme="clements")
     n_PS = m * (m - 1)
     if n_train_target is None:
         n_params = n_PS * n_PS + n_PS + m
         n_train_target = n_params
     n_samples = int(round(n_train_target / 0.8))
     dataset = make_synthetic_dataset(
-        truth, n_samples=n_samples, v_max=V_MAX, seed=seed + 1,
+        truth, n_samples=n_samples, x_max=X_MAX, seed=seed + 1,
     )
     train_ds, test_ds = train_test_split(
         dataset, test_frac=0.20, seed=seed + 2,

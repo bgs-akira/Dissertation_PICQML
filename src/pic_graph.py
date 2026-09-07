@@ -107,7 +107,23 @@ def build_from_mesh(mesh: ChipMesh) -> PICGraph:
     Assumes the Clements 4-layer block convention (BS_a, PS_int, BS_b,
     PS_ext) -- the same convention enforced by ``ChipMesh.clements()``.
     Raises ``ValueError`` if a different layer ordering is encountered.
+
+    **Clements only.** A Bell mesh expands each column to three layers
+    (BS_a, phase layer carrying both arms, BS_b) with no external PS, so
+    the 4-tuple walk below does not apply and the meta-MZI construction
+    that ``routing.py`` builds on top of this graph assumes external PSs
+    that a Bell mesh does not have. Porting the Supplement C.3 protocol
+    generator to Bell is future work; it is not on the ML critical path
+    (CLAUDE.md pitfall 15 -- synthetic phi-IFM needs no routing).
     """
+    if mesh.scheme != "clements":
+        raise ValueError(
+            f"build_from_mesh supports the Clements scheme only, got "
+            f"scheme={mesh.scheme!r}. The routing/protocol modules "
+            f"(pic_graph, routing, routing_viz) have not been ported to "
+            f"the Bell mesh; they are unused by the ML and phi-IFM "
+            f"stages."
+        )
     m = mesh.m
     nodes: list[Node] = []
 

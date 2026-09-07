@@ -173,18 +173,18 @@ def train(
         model.train()
         train_mse_total = 0.0
         train_count = 0
-        for V, port, p in train_loader:
-            V = V.to(device)
+        for x, port, p in train_loader:
+            x = x.to(device)
             port = port.to(device)
             p = p.to(device)
 
             optimizer.zero_grad()
-            p_hat = model(V, port)
+            p_hat = model(x, port)
             loss = mse(p, p_hat).mean()
             loss.backward()
             optimizer.step()
 
-            batch_size = V.shape[0]
+            batch_size = x.shape[0]
             train_mse_total += loss.item() * batch_size
             train_count += batch_size
 

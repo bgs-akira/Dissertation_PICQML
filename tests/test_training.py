@@ -58,7 +58,7 @@ def test_loss_decreases_on_synthetic_data():
     torch.manual_seed(42)
     m = 4
     truth = _truth_model(m=m, seed=0)
-    ds = make_synthetic_dataset(truth, n_samples=64, v_max=14.0, seed=1)
+    ds = make_synthetic_dataset(truth, n_samples=64, x_max=1.4, seed=1)
     train_ds, test_ds = train_test_split(ds, test_frac=0.25, seed=2)
     train_loader = DataLoader(train_ds, batch_size=16, shuffle=True)
     test_loader = DataLoader(test_ds, batch_size=16, shuffle=False)
@@ -84,7 +84,7 @@ def test_returns_best_test_mse_epoch():
     torch.manual_seed(42)
     m = 4
     truth = _truth_model(m=m, seed=0)
-    ds = make_synthetic_dataset(truth, n_samples=32, v_max=14.0, seed=1)
+    ds = make_synthetic_dataset(truth, n_samples=32, x_max=1.4, seed=1)
     train_ds, test_ds = train_test_split(ds, test_frac=0.25, seed=2)
     train_loader = DataLoader(train_ds, batch_size=8, shuffle=True)
     test_loader = DataLoader(test_ds, batch_size=8, shuffle=False)
@@ -114,7 +114,7 @@ def test_cosine_schedule_anneals_to_zero():
     torch.manual_seed(42)
     m = 4
     truth = _truth_model(m=m, seed=0)
-    ds = make_synthetic_dataset(truth, n_samples=16, v_max=14.0, seed=1)
+    ds = make_synthetic_dataset(truth, n_samples=16, x_max=1.4, seed=1)
     train_ds, test_ds = train_test_split(ds, test_frac=0.25, seed=2)
     train_loader = DataLoader(train_ds, batch_size=4, shuffle=True)
     test_loader = DataLoader(test_ds, batch_size=4, shuffle=False)
@@ -136,7 +136,7 @@ def test_best_state_dict_is_snapshot_not_reference():
     torch.manual_seed(42)
     m = 4
     truth = _truth_model(m=m, seed=0)
-    ds = make_synthetic_dataset(truth, n_samples=16, v_max=14.0, seed=1)
+    ds = make_synthetic_dataset(truth, n_samples=16, x_max=1.4, seed=1)
     train_ds, test_ds = train_test_split(ds, test_frac=0.25, seed=2)
     train_loader = DataLoader(train_ds, batch_size=4, shuffle=True)
     test_loader = DataLoader(test_ds, batch_size=4, shuffle=False)

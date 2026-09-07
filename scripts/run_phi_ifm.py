@@ -122,21 +122,20 @@ def _plausible_ml_output(truth: DigitalTwin, seed: int) -> DigitalTwin:
 
 
 def _locate_ps(mesh: ChipMesh, ps_index: int) -> str:
-    """Human-readable position of PS ps_index in the Clements mesh.
+    """Human-readable position of PS ps_index, for either scheme.
 
-    Layer indices come in groups of four per MZI row: BS_a, PS_int, BS_b,
-    PS_ext. So `layer_idx % 4 == 1` is an internal PS and
-    `layer_idx % 4 == 3` is an external PS.
+    Reads the role off ``mesh.ps_roles`` rather than inferring it from the
+    layer index. The old ``layer_idx % 4`` rule was Clements-specific (its
+    4-layer BS_a/PS_int/BS_b/PS_ext block); a Bell column is three layers,
+    so that rule would silently mislabel every Bell shifter.
     """
     for layer_idx, layer in enumerate(mesh.layers):
         if not isinstance(layer, PhaseShifterLayer):
             continue
         for wg, idx in layer.shifter_indices.items():
             if idx == ps_index:
-                role = "internal" if (layer_idx % 4 == 1) else "external"
-                mzi_row = layer_idx // 4
                 return (
-                    f"layer {layer_idx} (MZI row {mzi_row}, {role}), "
+                    f"layer {layer_idx} ({mesh.ps_roles[idx]}), "
                     f"waveguide {wg}"
                 )
     raise ValueError(f"PS index {ps_index} not found in mesh")

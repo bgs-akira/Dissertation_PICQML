@@ -1,7 +1,7 @@
 """End-to-end synthetic ML-stage run -- one chip size, one epoch budget.
 
 1. Build a ground-truth DigitalTwin with random perturbations.
-2. Generate a synthetic (V, port, p) dataset from it.
+2. Generate a synthetic (x, port, p) dataset from it.
 3. Train a fresh DigitalTwin seeded with V-IFM-style values for c_0 and
    diag(C_2) (drawn from the truth, in the absence of real V-IFM output).
 4. Save per-epoch train/test MSE and test TVD to JSON; plotting lives in
@@ -9,9 +9,9 @@
 
 Usage::
 
-    uv run python scripts/run_synthetic.py [--m 4] [--param-data-ratio 1.03]
-        [--epochs 50] [--batch-size 32] [--seed 0]
-        [--out outputs/run_synthetic_m<M>.json]
+    uv run python scripts/run_synthetic.py [--m 10] [--scheme bell]
+        [--param-data-ratio 1.03] [--epochs 50] [--batch-size 32] [--seed 0]
+        [--out outputs/run_synthetic_<scheme>_m<M>.json]
 
 Outputs:
     ``--out``        the JSON bundle (config + per-epoch history + summary)
@@ -21,8 +21,9 @@ Dataset size is derived from the parameter:data ratio (training points per
 trainable parameter) by ``src/synthetic.py::n_samples_from_ratio``: the
 total dataset is sized so the 80/20 train/test split yields
 ``round(param_data_ratio * n_params)`` training examples, where
-``n_params = n_PS**2 + n_BS + m`` and ``n_PS = n_BS = m(m-1)``. n_samples
-therefore scales as ~m**4 with chip size.
+``n_params = n_PS**2 + n_BS + m``. On the default Bell mesh
+``n_PS = m**2`` and ``n_BS = m(m-1)``, so n_samples scales as ~m**4 with
+chip size.
 """
 
 from __future__ import annotations
@@ -39,15 +40,14 @@ if str(_PROJECT_ROOT) not in sys.path:
 import torch
 from torch.utils.data import DataLoader
 
-from src.chip_mesh import ChipMesh
+from src.chip_mesh import MESH_SCHEMES, build_mesh
 from src.cli import setup_logging
-from src.data import make_synthetic_dataset, train_test_split
+from src.data import X_MAX, make_synthetic_dataset, train_test_split
 from src.model import DigitalTwin
 from src.synthetic import ground_truth_model, n_samples_from_ratio
 from src.training import train
 
 
-V_MAX = 14.0
 OUTPUT_DIR = Path("outputs")
 DTYPE = torch.float64   # matches run_iterative.py and run_phi_ifm.py
 
@@ -58,11 +58,15 @@ LR_TOUT = 1e-3
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="End-to-end synthetic ML-stage run on a Clements mesh.",
+        description="End-to-end synthetic ML-stage run on a Bell or "
+                    "Clements mesh.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--m", type=int, default=4,
+    p.add_argument("--m", type=int, default=10,
                    help="chip size (even, >= 2)")
+    p.add_argument("--scheme", choices=list(MESH_SCHEMES), default="bell",
+                   help="mesh topology. 'bell' (default) gives "
+                        "n_PS = m**2; 'clements' gives n_PS = m*(m-1).")
     p.add_argument("--param-data-ratio", type=float, default=1.03,
                    help="training points per trainable parameter "
                         "(see src/synthetic.py::n_samples_from_ratio)")
@@ -85,7 +89,7 @@ def _parse_args() -> argparse.Namespace:
     if args.batch_size < 1:
         p.error(f"--batch-size must be >= 1 (got {args.batch_size})")
     if args.out is None:
-        args.out = OUTPUT_DIR / f"run_synthetic_m{args.m}.json"
+        args.out = OUTPUT_DIR / f"run_synthetic_{args.scheme}_m{args.m}.json"
     return args
 
 
@@ -95,18 +99,22 @@ def main() -> None:
     setup_logging(log_path)
 
     torch.manual_seed(args.seed)
-    n_samples = n_samples_from_ratio(args.m, args.param_data_ratio)
+    n_samples = n_samples_from_ratio(
+        args.m, args.param_data_ratio, scheme=args.scheme,
+    )
     print(
-        f"Synthetic run: m={args.m}, "
+        f"Synthetic run: scheme={args.scheme}, m={args.m}, "
         f"param_data_ratio={args.param_data_ratio} -> n_samples={n_samples}, "
         f"epochs={args.epochs}"
     )
     print(f"  output: {args.out}")
     print(f"  log:    {log_path}")
 
-    truth = ground_truth_model(args.m, seed=args.seed, dtype=DTYPE)
+    truth = ground_truth_model(
+        args.m, seed=args.seed, dtype=DTYPE, scheme=args.scheme,
+    )
     dataset = make_synthetic_dataset(
-        truth, n_samples=n_samples, v_max=V_MAX, seed=args.seed + 1
+        truth, n_samples=n_samples, x_max=X_MAX, seed=args.seed + 1
     )
     train_ds, test_ds = train_test_split(
         dataset, test_frac=0.25, seed=args.seed + 2
@@ -117,7 +125,7 @@ def main() -> None:
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False)
 
     fresh = DigitalTwin(
-        ChipMesh.clements(args.m),
+        build_mesh(args.m, args.scheme),
         truth.c_0.clone(),
         truth.C_2.diag().clone(),
         dtype=DTYPE,
@@ -143,6 +151,7 @@ def main() -> None:
     bundle = {
         "config": {
             "m": args.m,
+            "scheme": args.scheme,
             "n_samples": n_samples,
             "param_data_ratio": args.param_data_ratio,
             "epochs": args.epochs,
@@ -151,7 +160,7 @@ def main() -> None:
             "lr_C2": LR_C2,
             "lr_R": LR_R,
             "lr_Tout": LR_TOUT,
-            "v_max": V_MAX,
+            "x_max": X_MAX,
             "dtype": str(DTYPE),
             "n_train": len(train_ds),
             "n_test": len(test_ds),

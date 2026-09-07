@@ -49,11 +49,13 @@ if str(_PROJECT_ROOT) not in sys.path:
 import torch
 from torch.utils.data import DataLoader
 
+from src.chip_mesh import MESH_SCHEMES
 from src.cli import setup_logging
-from src.data import make_synthetic_dataset, train_test_split
+from src.data import X_MAX, make_synthetic_dataset, train_test_split
 from src.evaluate import evaluate
 from src.model import DigitalTwin
 from src.phi_ifm import run_phi_ifm_stage
+from src.power_lookup import K_NOMINAL
 from src.synthetic import (
     build_chip_response_cache,
     ground_truth_model,
@@ -68,20 +70,33 @@ from src.training import train
 # ---------------------------------------------------------------------------
 
 # ML stage defaults (CLAUDE.md §6.2). LRs are decayed by 0.7 per cycle.
-LR_C2_INIT = 1e-5
+#
+# lr_C2 is expressed RELATIVE to the scale of C_2 itself, because Adam's
+# per-step update is ~lr in parameter units (it normalises away the
+# gradient magnitude). What matters is therefore lr / |C_2|, not lr.
+#
+# The paper's 1e-5 was tuned against a voltage-driven C_2 whose diagonal
+# sat at ~0.034 rad/V**2, i.e. a relative step of ~2.9e-4 per iteration.
+# Driving in power puts the diagonal at K_NOMINAL ~ 8.98 rad/W instead --
+# 264x larger -- so carrying 1e-5 across unchanged would shrink the
+# effective step by that same factor and the ML stage would crawl.
+# Keeping the RELATIVE rate fixed is what actually transfers.
+LR_C2_RELATIVE = 2.9e-4
+LR_C2_INIT = LR_C2_RELATIVE * K_NOMINAL   # ~2.6e-3 rad/W per step
+# R and T_out are sigmoid logits -- dimensionless, and unaffected by the
+# change of drive variable -- so the paper's rates carry over as they are.
 LR_R_INIT = 1e-3
 LR_TOUT_INIT = 1e-3
 LR_DECAY = 0.7
 
 # Synthetic dataset
-V_MAX = 14.0           # paper §7.A
 TEST_FRAC = 0.20
 BATCH_SIZE = 64
-DATA_NOISE_STD = 0.0   # noise on (V, port, p) tuples; 0 = clean synthetic
+DATA_NOISE_STD = 0.0   # noise on (x, port, p) tuples; 0 = clean synthetic
 
 # V-IFM seed errors (the noise that phi-IFM is asked to clean up)
 C_0_SEED_NOISE = 0.30      # rad
-C_2_DIAG_SEED_NOISE = 2e-3 # rad / V^2  (~6% of 0.034)
+C_2_DIAG_SEED_NOISE = 0.06 * K_NOMINAL  # rad / W (~6% of k)
 
 # phi-IFM measurements
 PHI_IFM_N_POINTS = 15
@@ -145,8 +160,15 @@ def _parse_args() -> argparse.Namespace:
         description="Iterative (ML + phi-IFM) loop until TVD < threshold.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--m", type=int, default=4,
+    p.add_argument("--m", type=int, default=10,
                    help="chip size; even, >= 2")
+    p.add_argument("--scheme", choices=list(MESH_SCHEMES), default="bell",
+                   help="mesh topology. 'bell' (default) is the compact "
+                        "scheme: a PS on both arms of every MZI, no "
+                        "external PS, plus independent PSs on the idle "
+                        "boundary waveguides, giving n_PS = m**2. "
+                        "'clements' is the older scheme (n_PS = m*(m-1)), "
+                        "kept for comparison.")
     p.add_argument("--threshold", type=float, default=1e-3,
                    help="test-TVD convergence threshold; loop exits when "
                         "post-phi-IFM TVD falls below this")
@@ -155,7 +177,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--epochs", type=int, default=200,
                    help="epochs per ML stage (paper uses 500)")
     p.add_argument("--n-samples", type=int, default=None,
-                   help="size of the (V, port, p) dataset. If omitted, "
+                   help="size of the (x, port, p) dataset. If omitted, "
                         "auto-derived from --param-data-ratio (see "
                         "src/synthetic.py::n_samples_from_ratio) so the "
                         "dataset scales with chip size.")
@@ -237,7 +259,9 @@ def _parse_args() -> argparse.Namespace:
     if args.n_samples is not None and args.n_samples < 1:
         p.error(f"--n-samples must be >= 1 (got {args.n_samples})")
     if args.out is None:
-        args.out = OUTPUT_DIR / f"iterative_m{args.m}.json"
+        # Scheme is in the filename so Bell and Clements runs at the same
+        # m don't overwrite each other's results.
+        args.out = OUTPUT_DIR / f"iterative_{args.scheme}_m{args.m}.json"
     return args
 
 
@@ -248,7 +272,8 @@ def _parse_args() -> argparse.Namespace:
 
 def run_simulation(
     *,
-    m: int = 4,
+    m: int = 10,
+    scheme: str = "bell",
     threshold: float = 1e-3,
     max_cycles: int = 8,
     epochs: int = 200,
@@ -277,6 +302,9 @@ def run_simulation(
 
     Args:
         m:           chip size (even, >= 2).
+        scheme:      mesh topology, "bell" (default) or "clements". Changes
+                     n_PS (m**2 vs m*(m-1)) and therefore the size of C_2,
+                     the ground truth, and the V-IFM seeds.
         threshold:   post-ML TVD convergence target, in (0, 1).
         max_cycles:  hard cap on outer-loop iterations.
         epochs:      epochs per ML stage (held fixed across the sweep).
@@ -309,10 +337,10 @@ def run_simulation(
         raise ValueError(f"max_cycles must be >= 1 (got {max_cycles})")
 
     torch.manual_seed(seed)
-    truth = ground_truth_model(m, seed=seed, dtype=dtype)
+    truth = ground_truth_model(m, seed=seed, dtype=dtype, scheme=scheme)
     dataset = make_synthetic_dataset(
         truth, n_samples=n_samples,
-        v_max=V_MAX, noise_std=data_noise_std,
+        x_max=X_MAX, noise_std=data_noise_std,
         seed=seed + 1,
     )
     train_ds, test_ds = train_test_split(
@@ -522,6 +550,7 @@ def run_simulation(
         "truth": truth,
         "model": model,
         "m": m,
+        "scheme": scheme,
         "threshold": threshold,
         "epochs": epochs,
         "n_samples": n_samples,
@@ -543,14 +572,17 @@ def main() -> None:
     # Auto-derive n_samples from --param-data-ratio unless the caller
     # passed --n-samples explicitly.
     if args.n_samples is None:
-        n_samples = n_samples_from_ratio(m, args.param_data_ratio)
+        n_samples = n_samples_from_ratio(
+            m, args.param_data_ratio, scheme=args.scheme,
+        )
         sample_source = f"auto: {args.param_data_ratio} x n_params"
     else:
         n_samples = args.n_samples
         sample_source = "explicit --n-samples"
 
-    print(f"Iterative (ML + phi-IFM) loop  --  m={m}, threshold="
-          f"{args.threshold * 100:.4f}%, max_cycles={args.max_cycles}")
+    print(f"Iterative (ML + phi-IFM) loop  --  scheme={args.scheme}, m={m}, "
+          f"threshold={args.threshold * 100:.4f}%, "
+          f"max_cycles={args.max_cycles}")
     print(f"  n_samples = {n_samples}  ({sample_source})")
     print(f"  output:    {args.out}")
     print(f"  log:       {log_path}")
@@ -564,6 +596,7 @@ def main() -> None:
     dtype = {"float32": torch.float32, "float64": torch.float64}[args.dtype]
     result = run_simulation(
         m=m,
+        scheme=args.scheme,
         threshold=args.threshold,
         max_cycles=args.max_cycles,
         epochs=args.epochs,
@@ -585,6 +618,7 @@ def main() -> None:
     bundle = {
         "config": {
             "m": m,
+            "scheme": args.scheme,
             "threshold": args.threshold,
             "max_cycles": args.max_cycles,
             "epochs": args.epochs,
@@ -603,7 +637,7 @@ def main() -> None:
             "num_threads": args.num_threads,
             "batch_size": BATCH_SIZE,
             "test_frac": TEST_FRAC,
-            "v_max": V_MAX,
+            "x_max": X_MAX,
             "data_noise_std": args.data_noise_std,
             "phi_ifm_n_points": PHI_IFM_N_POINTS,
             "phi_ifm_noise_std": args.phi_ifm_noise_std,

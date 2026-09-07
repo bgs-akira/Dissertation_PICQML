@@ -41,8 +41,8 @@ def evaluate(
     """Run `model` over `loader` and return aggregate MSE / TVD stats.
 
     Args:
-        model:  any module with `forward(V, input_ports) -> p_hat`.
-        loader: DataLoader yielding (V, port, p) batches.
+        model:  any module with `forward(x, input_ports) -> p_hat`.
+        loader: DataLoader yielding (x, port, p) batches.
         device: "cpu" or "cuda".
 
     Returns:
@@ -57,11 +57,11 @@ def evaluate(
     mses: list[torch.Tensor] = []
     tvds: list[torch.Tensor] = []
     with torch.no_grad():
-        for V, port, p in loader:
-            V = V.to(device)
+        for x, port, p in loader:
+            x = x.to(device)
             port = port.to(device)
             p = p.to(device)
-            p_hat = model(V, port)
+            p_hat = model(x, port)
             mses.append(mse(p, p_hat).cpu())
             tvds.append(tvd(p, p_hat).cpu())
     mse_all = torch.cat(mses) if mses else torch.zeros(0)

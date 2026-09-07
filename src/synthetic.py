@@ -32,8 +32,9 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from src.chip_mesh import ChipMesh
+from src.chip_mesh import build_mesh
 from src.model import DigitalTwin
+from src.power_lookup import K_NOMINAL
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +42,13 @@ from src.model import DigitalTwin
 # ---------------------------------------------------------------------------
 
 
-def n_samples_from_ratio(m: int, ratio: float, test_frac: float = 0.20) -> int:
+def n_samples_from_ratio(
+    m: int,
+    ratio: float,
+    test_frac: float = 0.20,
+    *,
+    scheme: str = "bell",
+) -> int:
     """Return total ``n_samples`` such that the *training* split contains
     ``round(ratio * n_params)`` examples under an 80/20 train/test split.
 
@@ -51,12 +58,15 @@ def n_samples_from_ratio(m: int, ratio: float, test_frac: float = 0.20) -> int:
     ``TEST_FRAC`` in ``scripts/run_iterative.py``), giving
     ``n_test = round(n_train * test_frac / (1 - test_frac))``.
 
-    ``n_PS`` and ``n_BS`` are both ``m * (m - 1)`` for a Clements
-    rectangular mesh (CLAUDE.md section 3.5).
+    The trainable-parameter count is read off the mesh rather than
+    hardcoded, because it is scheme-dependent: ``n_params = n_PS**2``
+    (the full ``C_2``) ``+ n_BS`` (``R``) ``+ m`` (``T_out``). Bell has
+    ``n_PS = m**2`` against Clements' ``m * (m - 1)``, so at m = 10 Bell
+    needs 10,100 parameters to Clements' 8,200 -- about 23 % more data
+    for the same ratio (CLAUDE.md section 3.5).
     """
-    n_PS = m * (m - 1)
-    n_BS = m * (m - 1)
-    n_params = n_PS * n_PS + n_BS + m
+    mesh = build_mesh(m, scheme)
+    n_params = mesh.n_PS * mesh.n_PS + mesh.n_BS + m
     n_train = round(ratio * n_params)
     n_test = round(n_train * test_frac / (1.0 - test_frac))
     return max(2, n_train + n_test)
@@ -66,27 +76,46 @@ def n_samples_from_ratio(m: int, ratio: float, test_frac: float = 0.20) -> int:
 # Ground-truth DigitalTwin
 # ---------------------------------------------------------------------------
 
-# Magic-number perturbations -- match what the three runner scripts used
-# verbatim before this module existed. Edit here, propagate everywhere.
-_TRUTH_C0_STD = 0.30          # rad
-_TRUTH_C2_DIAG_MEAN = 0.034   # rad / V^2  (paper midpoint)
-_TRUTH_C2_DIAG_STD = 2e-3     # rad / V^2  (~6% of mean)
-_TRUTH_C2_OFFDIAG_STD = 5e-4  # rad / V^2  (paper-typical crosstalk magnitude)
-_TRUTH_R_LOGIT_STD = 0.30     # logit space; sigmoid(0.3) ~= 0.575
+# Ground-truth perturbation magnitudes. Edit here, propagate everywhere.
+#
+# Units are the POWER domain: diag(C_2) is the calibration document's k in
+# rad/W, c_0 is its b in rad. K_NOMINAL = 2*pi / 0.7 W ~ 8.98 rad/W comes
+# from the chip's "~700 mW for a 2*pi shift" budget (src.power_lookup).
+_TRUTH_C0_STD = 0.30              # rad
+_TRUTH_C2_DIAG_MEAN = K_NOMINAL   # rad / W  (~8.98)
+_TRUTH_C2_DIAG_STD = 0.06 * K_NOMINAL   # rad / W, ~6% channel-to-channel
+# Crosstalk. The Fyrillas chip's off-diagonal ran ~1.5% of its diagonal
+# (5e-4 against 0.034); we keep that ratio, since the calibration document
+# models no crosstalk at all and so offers no number of its own. This is
+# the term the ML stage exists to recover.
+_TRUTH_C2_OFFDIAG_STD = 0.015 * K_NOMINAL   # rad / W
+# Beamsplitter deviations. The document measures |beta - alpha| = 0.02 and
+# |beta + alpha| = 0.07 on the directional couplers, so alpha, beta ~ 0.02
+# to 0.05 rad. With R = cos^2(pi/4 + alpha), that is R ~ 0.45 to 0.55; a
+# logit sigma of 0.10 covers it (sigmoid(+-0.1) ~ 0.475 to 0.525).
+_TRUTH_R_LOGIT_STD = 0.10
 _TRUTH_T_LOGIT_MEAN = 6.0     # sigmoid(6.0) ~= 0.998
 _TRUTH_T_LOGIT_STD = 0.10
 
 
 def ground_truth_model(
-    m: int, seed: int, *, dtype: torch.dtype = torch.float64,
+    m: int,
+    seed: int,
+    *,
+    dtype: torch.dtype = torch.float64,
+    scheme: str = "bell",
 ) -> DigitalTwin:
     """Canonical ground-truth ``DigitalTwin`` for synthetic experiments.
 
     All three of ``run_synthetic.py``, ``run_iterative.py`` and
     ``run_phi_ifm.py`` use this; runs across scripts are therefore
-    comparable as long as ``(m, seed, dtype)`` match.
+    comparable as long as ``(m, seed, dtype, scheme)`` match.
+
+    Note that changing ``scheme`` changes ``n_PS``, hence how many draws
+    the generator makes and in what order, so ground truths are NOT
+    comparable across schemes even at the same seed.
     """
-    mesh = ChipMesh.clements(m)
+    mesh = build_mesh(m, scheme)
     g = torch.Generator().manual_seed(seed)
     c_0 = torch.randn(mesh.n_PS, generator=g, dtype=dtype) * _TRUTH_C0_STD
     c2_diag = (

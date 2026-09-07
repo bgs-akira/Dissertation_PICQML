@@ -28,10 +28,30 @@ Frozen
 
 Forward model (CLAUDE.md §4)
 ----------------------------
-    phi    = V**2 @ C_2.T + c_0
+    phi    = x @ C_2.T + c_0
     U_0    = product of per-layer matrices, propagation order (input -> output)
     U      = diag(sqrt(T_out)) @ U_0
     p_hat  = |U[:, input_port]|**2 / sum(|U[:, input_port]|**2)
+
+Drive variable: electric power
+------------------------------
+``x`` is the ELECTRIC POWER dissipated in each heater, in watts -- the
+Prakash calibration document's ``x``, and the quantity its phase law
+``theta = k*x + b`` is linear in. So ``diag(C_2)`` is that document's
+per-shifter ``k`` (rad/W) and ``c_0`` is its ``b`` (rad); the off-diagonal
+of ``C_2`` is the thermal crosstalk the document does not model and the
+ML stage exists to recover.
+
+This replaces the earlier voltage drive (``phi = V**2 @ C_2.T + c_0``,
+after Fyrillas et al.). Two reasons: the chip is specified by a power
+budget rather than a voltage one, and a heater's resistance rises as it
+warms, so power is not simply proportional to V**2 anyway. The
+current-to-power conversion, which is where that nonlinearity lives, is
+handled upstream by ``src.power_lookup`` and is deliberately outside the
+autograd graph.
+
+The document's theta is this module's ``phi``: same quantity, different
+letter.
 """
 
 from __future__ import annotations
@@ -228,30 +248,30 @@ class DigitalTwin(nn.Module):
 
     def forward(
         self,
-        V: torch.Tensor,
+        x: torch.Tensor,
         input_ports: torch.Tensor,
     ) -> torch.Tensor:
-        """Map voltages and input-port indices to predicted output distributions.
+        """Map heater powers and input ports to predicted output distributions.
 
         Args:
-            V:           (batch, n_PS) real voltages.
+            x:           (batch, n_PS) real electric powers, in watts.
             input_ports: (batch,) long input-port indices in [0, m).
 
         Returns:
             (batch, m) real predicted distribution, each row sums to 1.
         """
-        if V.shape[-1] != self.n_PS:
+        if x.shape[-1] != self.n_PS:
             raise ValueError(
-                f"V last dim must be n_PS = {self.n_PS}, got {V.shape[-1]}"
+                f"x last dim must be n_PS = {self.n_PS}, got {x.shape[-1]}"
             )
-        if input_ports.shape[0] != V.shape[0]:
+        if input_ports.shape[0] != x.shape[0]:
             raise ValueError(
-                f"input_ports batch ({input_ports.shape[0]}) must match V batch "
-                f"({V.shape[0]})"
+                f"input_ports batch ({input_ports.shape[0]}) must match x batch "
+                f"({x.shape[0]})"
             )
 
         device = self.c_0.device
-        phi = (V ** 2) @ self.C_2.T + self.c_0          # (batch, n_PS)
+        phi = x @ self.C_2.T + self.c_0                 # (batch, n_PS)
         batch = phi.shape[0]
         sqrt_T_out = torch.sqrt(self.T_out).to(self._complex_dtype)
 

@@ -34,7 +34,7 @@ from src.model import DigitalTwin
 from src.synthetic import ground_truth_model, n_samples_from_ratio
 
 
-V_MAX = 14.0
+from src.data import X_MAX
 DTYPE = torch.float64
 
 
@@ -148,11 +148,13 @@ def train_with_diagnostics(
 def make_model_and_loaders(m, n_train_target, batch_size, seed=0):
     """Build truth, dataset, and loaders with target n_train; perfect c_0 seed."""
     torch.manual_seed(seed)
-    truth = ground_truth_model(m, seed=seed, dtype=DTYPE)
+    # Pinned to Clements: these scripts document the historic m=8 Adam
+    # overshoot on the Clements mesh and must keep reproducing it.
+    truth = ground_truth_model(m, seed=seed, dtype=DTYPE, scheme="clements")
     # Build dataset large enough that 80/20 yields n_train_target training samples.
     n_samples = int(round(n_train_target / 0.8))
     dataset = make_synthetic_dataset(
-        truth, n_samples=n_samples, v_max=V_MAX, seed=seed + 1,
+        truth, n_samples=n_samples, x_max=X_MAX, seed=seed + 1,
     )
     train_ds, test_ds = train_test_split(
         dataset, test_frac=0.20, seed=seed + 2,
